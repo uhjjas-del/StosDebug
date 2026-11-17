@@ -1,0 +1,5 @@
+{
+  "name": "StosDebug",
+  "description": "iOS JIT debugger, Developer Disk Image mounter, and GDB remote script runner ported from StosDebug.",
+  "requestFramePermissions": []
+}
