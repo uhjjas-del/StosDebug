@@ -1,34 +1,92 @@
-name: Build StosDebug Web App
+name: Build StosDebug IPA
+
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Build configuration'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+  push:
+    branches:
+      - main
+    paths:
+      - 'StosDebug/**'
+      - 'StosDebug.xcodeproj/**'
+      - '.github/workflows/build.yml'
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
+
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          submodules: recursive
 
-      - name: Install dependencies
-        run: npm ci || npm install
+      - name: Verify Xcode project exists
+        run: |
+          if [ ! -d "StosDebug.xcodeproj" ]; then
+            echo "::error::StosDebug.xcodeproj is missing from this branch. Make sure your Swift/Xcode source files are present before running the IPA builder."
+            exit 1
+          fi
 
-      - name: Typecheck
-        run: npm run lint
+      - name: Show Xcode environment
+        run: |
+          xcodebuild -version
+          xcodebuild -list -project StosDebug.xcodeproj
 
-      - name: Build production bundle
-        run: npm run build
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project StosDebug.xcodeproj \
+            -scheme StosDebug \
+            -clonedSourcePackagesDirPath .spm-cache || true
 
-      - name: Upload build artifact
+      - name: Build unsigned iOS app
+        env:
+          CONFIG: ${{ inputs.configuration || 'Release' }}
+        run: |
+          xcodebuild clean build \
+            -project StosDebug.xcodeproj \
+            -scheme StosDebug \
+            -configuration "$CONFIG" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package StosDebug.ipa
+        env:
+          CONFIG: ${{ inputs.configuration || 'Release' }}
+        run: |
+          APP_PATH="build/Build/Products/${CONFIG}-iphoneos/StosDebug.app"
+          if [ ! -d "$APP_PATH" ]; then
+            APP_PATH="$(find build/Build/Products -maxdepth 3 -name 'StosDebug.app' | head -n 1)"
+          fi
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "::error::Could not locate built StosDebug.app"
+            exit 1
+          fi
+
+          rm -rf Payload StosDebug.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" ./Payload/StosDebug.app
+          zip -qry StosDebug.ipa Payload
+          ls -lh StosDebug.ipa
+
+      - name: Upload StosDebug.ipa
         uses: actions/upload-artifact@v4
         with:
-          name: StosDebug-dist
-          path: dist
+          name: StosDebug-IPA
+          path: StosDebug.ipa
+          if-no-files-found: error
