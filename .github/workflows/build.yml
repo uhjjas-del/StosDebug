@@ -1,33 +1,34 @@
-name: Build StosDebug IPA
+name: Build StosDebug Web App
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build unsigned app
-        run: |
-          xcodebuild \
-            -project StosDebug.xcodeproj \
-            -scheme StosDebug \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
 
-      - name: Package IPA
-        run: |
-          mkdir -p Payload
-          cp -r build/Build/Products/Release-iphoneos/StosDebug.app ./Payload/StosDebug.app
-          zip -r StosDebug.ipa Payload
+      - name: Install dependencies
+        run: npm ci || npm install
 
-      - name: Upload IPA
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: StosDebug-IPA
-          path: StosDebug.ipa
+          name: StosDebug-dist
+          path: dist
